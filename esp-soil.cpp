@@ -8,122 +8,104 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
-// pin
+// Pin Setup
 #define SOIL_PIN 27
 #define RELAY_PIN 14
-#define OLED_SDA 21
-#define OLED_SCL 22
-
-// setting relay
-#define RELAY_ACTIVE_LOW false
-
-// oled
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
+
+// OLED
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
-// wifi + blynk
-char ssid[] = "TR2";
-char pass[] = "";
+// Blynk WiFi
+char ssid[] = "pinkyboy";
+char pass[] = "12345678";
 
-// variabel
-bool autoMode = true;   // default auto
-bool relayState = false;
+// Relay logic
+#define RELAY_ACTIVE_LOW true   
 
-// kalibrasi
-const int SOIL_DRY_RAW = 3000;  
-const int SOIL_WET_RAW = 1200;  
-const int THRESHOLD = 50; 
+// Variabel
+int soilMoisture = 0;
+int autoMode = 1;   // default Auto mode
+int relayState = 0; // 0 = off, 1 = on
 
-BlynkTimer timer;
-
-// set relay
-void setRelay(bool state) {
-  relayState = state;
-  if (RELAY_ACTIVE_LOW) {
-    digitalWrite(RELAY_PIN, state ? LOW : HIGH);
-  } else {
-    digitalWrite(RELAY_PIN, state ? HIGH : LOW);
-  }
+// Fungsi kontrol relay
+void relayOn() {
+  digitalWrite(RELAY_PIN, RELAY_ACTIVE_LOW ? LOW : HIGH);
+  relayState = 1;
 }
 
-// read sensor
-int getSoilMoisture() {
-  int raw = analogRead(SOIL_PIN);
-  int percent = map(raw, SOIL_DRY_RAW, SOIL_WET_RAW, 0, 100);
-  if (percent < 0) percent = 0;
-  if (percent > 100) percent = 100;
-  return percent;
+void relayOff() {
+  digitalWrite(RELAY_PIN, RELAY_ACTIVE_LOW ? HIGH : LOW);
+  relayState = 0;
 }
 
-// oled
-void updateOLED(int soilPercent) {
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
-
-  display.setCursor(0,0);
-  display.print("Soil: ");
-  display.print(soilPercent);
-  display.println("%");
-
-  display.setCursor(0,16);
-  display.print("Mode: ");
-  display.println(autoMode ? "AUTO" : "MANUAL");
-
-  display.setCursor(0,32);
-  display.print("Pump: ");
-  display.println(relayState ? "ON" : "OFF");
-
-  display.display();
+// Blynk widget handler
+BLYNK_WRITE(V0) { // Switch Auto/Manual
+  autoMode = param.asInt();
 }
 
-// send data2blynk
-void sendToBlynk() {
-  int soilPercent = getSoilMoisture();
-
-  if (autoMode) {
-    if (soilPercent < THRESHOLD) {
-      setRelay(true);
-    } else {
-      setRelay(false);
-    }
-  }
-  updateOLED(soilPercent);
-  Blynk.virtualWrite(V2, soilPercent); 
-}
-
-// blynk set
-BLYNK_WRITE(V0) {  
-  autoMode = param.asInt(); // 1 = auto, 0 = manual
-}
-
-BLYNK_WRITE(V1) {  
-  if (!autoMode) {
-    int val = param.asInt();
-    setRelay(val);
+BLYNK_WRITE(V1) { // Button Manual Pump
+  int btn = param.asInt();
+  if (autoMode == 0) { // hanya manual mode
+    if (btn == 1) relayOn();
+    else relayOff();
   }
 }
 
 void setup() {
   Serial.begin(115200);
 
+  // Relay pin setup
   pinMode(RELAY_PIN, OUTPUT);
-  setRelay(false);
+  delay(100);
+  relayOff();   // pastikan relay mati dulu
 
-  Wire.begin(OLED_SDA, OLED_SCL);
+  // OLED init
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    Serial.println(F("OLED gagal!"));
-    for(;;);
+    Serial.println(F("SSD1306 allocation failed"));
+    for (;;);
   }
   display.clearDisplay();
-  display.display();
 
+  // Blynk
   Blynk.begin(BLYNK_AUTH_TOKEN, ssid, pass);
-  timer.setInterval(2000L, sendToBlynk);
 }
 
 void loop() {
   Blynk.run();
-  timer.run();
+
+  // Baca soil moisture (0-100%)
+  soilMoisture = map(analogRead(SOIL_PIN), 0, 4095, 100, 0);
+
+  // Mode Auto
+  if (autoMode == 1) {
+    if (soilMoisture < 40) relayOn();
+    else relayOff();
+  }
+
+  // Update Blynk
+  Blynk.virtualWrite(V2, soilMoisture);
+  Blynk.virtualWrite(V3, relayState);
+
+  // Update OLED
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.print("Soil: ");
+  display.print(soilMoisture);
+  display.println("%");
+
+  display.setCursor(0, 20);
+  display.print("Mode: ");
+  display.println(autoMode ? "Auto" : "Manual");
+
+  display.setCursor(0, 40);
+  display.print("Pump: ");
+  display.println(relayState ? "ON" : "OFF");
+
+  display.display();
+
+  delay(500);
 }
