@@ -1,43 +1,40 @@
+
 #include <Servo.h>
 
-Servo doorServo;
+Servo pintu;
 
-const int PIR_PIN = 2;
-const int SERVO_PIN = 9;
+#define PIR_PIN  13   // pin sensor PIR
+#define SERVO_PIN  14 // pin servo
 
-const int openAngle  = 90;
-const int closeAngle = 0;
-const unsigned long closeDelay = 5000;
-
-bool isOpen = false;
-unsigned long lastMotionMillis = 0;
+bool gerakanTerdeteksi = false;
+unsigned long waktuTerakhirGerakan = 0;
+const unsigned long delayTutup = 5000; // 5 detik setelah tidak ada gerakan pintu menutup
 
 void setup() {
+  Serial.begin(115200);
   pinMode(PIR_PIN, INPUT);
-  doorServo.attach(SERVO_PIN);
-  doorServo.write(closeAngle);
-  delay(500); 
-  doorServo.detach(); 
+}
 
 void loop() {
-  int pirState = digitalRead(PIR_PIN);
+  int statusPIR = digitalRead(PIR_PIN);
 
-  if (pirState == HIGH) {
-    lastMotionMillis = millis();
-    if (!isOpen) {
-      doorServo.attach(SERVO_PIN);
-      doorServo.write(openAngle);
-      delay(500); 
-      doorServo.detach();
-      isOpen = true;
-    }
+  if (statusPIR == HIGH && !gerakanTerdeteksi) {
+    Serial.println("Gerakan terdeteksi -> Pintu membuka");
+    pintu.attach(SERVO_PIN);
+    pintu.write(90);  // buka pintu
+    delay(1000);      // tunggu servo bergerak
+    pintu.detach();   // lepas supaya tidak panas
+    gerakanTerdeteksi = true;
+    waktuTerakhirGerakan = millis();
   }
 
-  if (isOpen && millis() - lastMotionMillis > closeDelay) {
-    doorServo.attach(SERVO_PIN);
-    doorServo.write(closeAngle);
-    delay(500);
-    doorServo.detach();
-    isOpen = false;
+  // Jika sudah ada gerakan sebelumnya, cek waktu
+  if (gerakanTerdeteksi && millis() - waktuTerakhirGerakan > delayTutup) {
+    Serial.println("Tidak ada gerakan -> Pintu menutup");
+    pintu.attach(SERVO_PIN);
+    pintu.write(0);   // tutup pintu
+    delay(1000);
+    pintu.detach();
+    gerakanTerdeteksi = false;
   }
 }
